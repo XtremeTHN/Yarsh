@@ -1,0 +1,1 @@
+nvim ~/.config/yarp/preferences.yml
