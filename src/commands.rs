@@ -3,11 +3,14 @@ use crossterm::{execute, terminal};
 use crossterm::cursor::MoveTo;
 use log::{info, debug, error};
 use std::path::Path;
+use std::process::Child;
 use std::time::SystemTime;
 use std::{env, fs, process::{Command, Stdio}, path::PathBuf};
 use std::io::{self, Write, Read, BufRead};
 use is_executable::IsExecutable;
 use term_size::dimensions;
+use nix::sys::wait::{waitpid, WaitStatus};
+use nix::unistd::Pid;
 
 use crate::setup::{self, open_config, write_conf};
 use walkdir::WalkDir;
@@ -32,6 +35,40 @@ pub fn columnize_text(items: &Vec<String>) {
         error!("commands::columnize_text(): Cannot retrieve terminal width. Columnizing without formating...");
         for item in items {
             println!("{}", item);
+        }
+    }
+}
+
+pub fn wait_for_command(pid: u32) {
+    let pid = Pid::from_raw(pid as i32); // Reemplaza con el PID del proceso que deseas verificar
+    loop {
+        match waitpid(pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG)) {
+            Ok(WaitStatus::StillAlive) => {
+                continue;
+            }
+            Ok(WaitStatus::Exited(_, code)) => {
+                break;
+            }
+            Ok(WaitStatus::Signaled(_, _, _)) => {
+                break;
+            }
+            Ok(WaitStatus::Stopped(_, _)) => {
+                break;
+            }
+            Ok(WaitStatus::Continued(_)) => {
+                break;
+            }
+            Ok(WaitStatus::PtraceEvent(_, _, _)) => {
+                break;
+            }
+            Ok(WaitStatus::PtraceSyscall(_)) => {
+                break;
+            }
+            Err(err) => {
+                println!("No se pudo obtener el estado del proceso con PID {}.", pid);
+                println!("{err}");
+                break;
+            }
         }
     }
 }
@@ -61,34 +98,96 @@ pub fn find_executable_command(executable_name: &str) -> Option<PathBuf> {
     found
 }
 
-pub fn run_external_command(executable_name: &str, args: Option<Vec<String>>) -> Result<(), &str>{
-        let found = find_executable_command(executable_name);
+// pub fn run_external_command(input: Vec<String>) -> Result<Child, &str>{
+//         let executable_name = &input[0];
+//         let found = find_executable_command(executable_name);
         
-        // Si el ejecutable no se encuentra
-        if let Some(executable_path) = found {
-            if let Some(mut prog_args) = args {
-                prog_args.drain(0..1);
-                // Ejecutar el archivo
-                info!("commands::run_external_command(): Executing program...");
+//         if let Some(cmd2) = executable_name.find("|") {
+//             let executable_name_2 = executable_name.clone();
+//             let (_, cmd) = executable_name_2.split_at(cmd2);
+//             find_executable_command(cmd);
+//         } else {
+//             // Si el ejecutable no se encuentra
+//             if let Some(executable_path) = found {
+//                 if let Some(mut prog_args) = args {
+//                     prog_args.drain(0..1);
+//                     // Ejecutar el archivo
+//                     info!("commands::run_external_command(): Executing program...");
 
-                let output = Command::new(executable_path)
-                    .args(prog_args)
-                    .stdout(Stdio::inherit())
+//                     let output = Command::new(executable_path)
+//                         .args(prog_args)
+//                         .stdout(Stdio::inherit())
+//                         .spawn();
+                    
+//                     Ok(output.unwrap())
+//                 } else {
+//                     let output = Command::new(executable_path)
+//                         .stdout(Stdio::inherit())
+//                         .spawn();
+                    
+//                     Ok(output.unwrap())
+//                 }
+//             } else {
+//                 println!("yarp: unknown command: {}", executable_name);
+//                 Err("Executable not found")
+//             }
+//         }
+// }
+
+pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
+    // Dividir el comando en partes separadas por el carácter '|'
+    let commands: Vec<&str> = command.trim().split('|').collect();
+    
+    // Procesar cada comando en el pipeline
+    let mut previous_output = None;
+    for (index, cmd) in commands.iter().enumerate() {
+        // Dividir el comando en partes separadas por espacios en blanco
+        let parts: Vec<&str> = cmd.trim().split_whitespace().collect();
+        
+        // Verificar si hay un ejecutable en la primera parte del comando
+        if let Some(executable) = parts.first() {
+            let found = find_executable_command(executable);
+            
+            // Si el ejecutable no se encuentra
+            if let Some(executable_path) = found {
+                // Configurar las opciones de redirección de entrada/salida
+                let stdout = if index < commands.len() - 1 {
+                    // Si no es el último comando, redirigir la salida al siguiente comando
+                    Stdio::piped()
+                } else {
+                    // Si es el último comando, heredar la salida estándar del proceso padre
+                    Stdio::inherit()
+                };
+                let stdin = previous_output.map_or(Stdio::inherit(), |output: Child| Stdio::from(output.stdout.unwrap()));
+                
+                // Ejecutar el comando
+                let child_process = Command::new(executable_path)
+                    .args(&parts[1..])
+                    .stdout(stdout)
+                    .stdin(stdin)
                     .spawn();
                 
-                output.unwrap().wait();
+                // Verificar si se pudo ejecutar el comando
+                match child_process {
+                    Ok(child) => {
+                        // Obtener la salida estándar del proceso actual para usarla como entrada en el siguiente comando
+                        previous_output = Some(child);
+                        if index == commands.len() - 1 {
+                            info!("{:?}", previous_output);
+                            return Ok(previous_output);
+                        }
+                    }
+                    Err(_) => {
+                        return Err("Failed to execute command");
+                    }
+                }
             } else {
-                let output = Command::new(executable_path)
-                    .stdout(Stdio::inherit())
-                    .spawn();
-                
-                output.unwrap().wait();
+                println!("yarp: unknown command: {}", executable);
+                return Err("Executable not found");
             }
-            Ok(())
-        } else {
-            println!("yarp: unknown command: {}", executable_name);
-            Err("Executable not found")
         }
+    }
+    Ok(None)
 }
 
 pub struct Builtin {}
