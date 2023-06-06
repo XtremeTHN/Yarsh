@@ -5,7 +5,7 @@ Tecnically this project is a fork of RustyShell, so part of the code will be the
 
 ## Built-in commands
 
-###### ls
+##### ls
 You can list the files in the current folder:
 ```
 / >> ls
@@ -13,14 +13,14 @@ You can list the files in the current folder:
 Cargo.toml     Cargo.lock     recent_log.py  .gitignore 
 / >>
 ```
-###### cd
+##### cd
 You can change the current directory by writing this command
 ```
 / >> cd foo/bar
 /foo/bar >> 
 ```
 
-###### echo
+##### echo
 You can print messages into stdout by writting this
 ```
 / >> echo foo bar
@@ -28,13 +28,13 @@ foo bar
 / >>
 ```
 
-###### clear
+##### clear
 You can clear the terminal with the clear command
 ```
 / >> clear
 ```
 
-###### read
+##### read
 Now you can read files with this new command! 
 ```
 / >> read foo.txt
@@ -56,7 +56,7 @@ echo Hello World
 / >>
 ```
 
-###### config
+##### config
 Now theres a config file, by the moment, you only can edit where you want to write the logs.
 
 With the `-l` argument you can list the current configurations
@@ -81,9 +81,9 @@ Lastly, with the `-s` argument you can change the value of specific field
 
 ## Extra features
 
-###### More logging messages
-More log messages for deugging purposes!. The logs will be stored at `/home/$USER/.local/share/yash/logs`
+##### More logging messages
+More log messages for deugging purposes!. The logs will be stored at `/home/$USER/.local/share/yarsh/logs`
 
-###### Pipelines
+##### Pipelines
 The pipelines are currently in development, but it works, you can make a pipe line with this syntax
 `command_1 arguments | command_2 arguments`
