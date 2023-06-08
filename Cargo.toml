@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.26"
+clap = { version = "4.3.2", features = ["derive"] }
 colored = "2.0.0"
 crossterm = "0.26.1"
 ctrlc = "3.4.0"
@@ -21,6 +22,5 @@ serde = { version = "1.0.163", features = ["derive"] }
 serde_yaml = "0.9.21"
 shellwords = "1.1.0"
 simplelog = "0.12.1"
-structopt = "0.3.26"
 term_size = "0.3.2"
 walkdir = "2.3.3"

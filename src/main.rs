@@ -134,7 +134,7 @@ fn main() {
                         &_ => {
                             let sh_cmd = shell_cmd[0].to_string();
 
-                            if let Ok(mut output_obj) = run_external_command(&shell_cmd.join(" ")) {
+                            if let Ok(output_obj) = run_external_command(&shell_cmd.join(" ")) {
                                 let mut unwraped_output = output_obj.unwrap();
                                 current_command_pid = Arc::new(unwraped_output.id());
                                 unwraped_output.wait();

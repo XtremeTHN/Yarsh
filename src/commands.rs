@@ -2,7 +2,7 @@ use crossterm::style::Stylize;
 use crossterm::{execute, terminal};
 use crossterm::cursor::MoveTo;
 use log::{info, debug, error};
-use structopt::{StructOpt, clap};
+use clap::{Parser};
 use std::path::Path;
 use std::process::Child;
 use std::time::SystemTime;
@@ -191,11 +191,8 @@ pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
     Ok(None)
 }
 
-#[derive(StructOpt, Clone)]
-#[structopt(
-    name = "List",
-    about = "List files in a specified directory, or in the current working directory"
-)]
+#[derive(Parser, Debug)]
+#[command(author = "XtremeTHN", version = "1.0.1", about = "List files", long_about = None)]
 struct LsArgs {
     #[structopt(
         name = "DIRECTORY",
@@ -204,83 +201,54 @@ struct LsArgs {
     dir: String,
 }
 
-#[derive(StructOpt, Clone)]
-#[structopt(
-    name = "Config",
-    about = "Tool for manipulating the config of yarsh",
-    group = clap::ArgGroup::with_name("verb").required(true),
-    group = clap::ArgGroup::with_name("brev").required(true),
-)]
+#[derive(Parser, Debug)]
+#[command(author = "XtremeTHN", version = "1.0.10", about = "Edit the config file of Yarsh", long_about = None)]
 struct ConfigArgs {
-    #[structopt(
-        short = "s",
-        long = "--set",
-        help = "Specifies that you want to set a value in the configs",
-        requires("verb")
-    )]
+    #[arg(
+        short = 's',
+        long = "set", 
+        help = "Specifies that you want to set a value in the configs")]
     set_opt: bool,
 
-    #[structopt(
-        short = "g",
-        long = "--get",
+    #[arg(
+        short = 'g',
+        long = "get",
         help = "Specifies that you want to get a value in the configs",
-        requires("brev")
+        requires_all = &["section", "field"],
     )]
     get_opt: bool,
 
-    #[structopt(
-        short = "l",
-        long = "--list",
-        help = "List all values of the configs",
+    #[arg(
+        short = 'l',
+        long = "list",
+        help = "List all values of the configs"
     )]
     list_opt: bool,
 
-    #[structopt(
-        name = "SECTION",
-        group = "verb",
-        group = "brev"
-    )]
-    section: String,
-
-    #[structopt(
-        name = "FIELD",
-        group = "verb",
-        group = "brev"
-    )]
-    field: String,
-
-    #[structopt(
-        name = "VALUE",
-        group = "verb",
-        group = "brev"
-    )]
-    value: String,
+    section: Option<String>,
+    field: Option<String>,
+    value: Option<String>,
 }
 
-#[derive(StructOpt, Clone)]
-#[structopt(
-    name = "Config",
-    about = "Tool for manipulating the config of yarsh"
-)]
+#[derive(Parser, Debug)]
+#[command(author = "XtremeTHN", version = "0.8.0", about = "Read files with this command", long_about = None)]
 struct ReadArgs {
-    #[structopt(
-        short = "-f",
-        long = "--force",
+    #[arg(
+        short = 'f',
+        long = "force",
         help = "Specifies that you want to force the read of a file"
     )]
     force_opt: bool,
 
-    #[structopt(
-        name = "FILE"
-    )]
     file: PathBuf,
 }
 pub struct Builtin {}
 
 impl Builtin {
     pub fn config_cmd(arguments: Vec<String>) {
-        let mut configs = setup::load_conf();
-        match ConfigArgs::from_iter_safe(arguments) {
+        info!("commands::Builtin::config_cmd(): Reading config file...");
+        let configs = setup::load_conf();
+        match ConfigArgs::try_parse_from(arguments) {
             Ok(args) => {
                 if args.list_opt {
                     println!("{}: Listing values...", "config".blue());
@@ -290,15 +258,15 @@ impl Builtin {
                 }
                 if args.set_opt {
                     let mut configs_set_opt_clone = configs.clone();
-                    match args.section.clone().as_str() {
+                    match args.section.clone().unwrap().as_str() {
                         "logs_configurations" => {
-                            match args.field.clone().as_str() {
+                            match args.field.clone().unwrap().as_str() {
                                 "write_to_file" => {
-                                    configs_set_opt_clone.logs_configurations.write_to_file = args.value.clone().parse().unwrap();
+                                    configs_set_opt_clone.logs_configurations.write_to_file = args.value.clone().unwrap().parse().unwrap();
                                     write_conf(configs_set_opt_clone);
                                 }
                                 "write_to_stdout" => {
-                                    configs_set_opt_clone.logs_configurations.write_to_stdout = args.value.clone().parse().unwrap();
+                                    configs_set_opt_clone.logs_configurations.write_to_stdout = args.value.clone().unwrap().parse().unwrap();
                                     write_conf(configs_set_opt_clone);
                                 }
                                 &_ => {
@@ -314,9 +282,9 @@ impl Builtin {
                 }
                 if args.get_opt {
                     let mut configs_get_opt_clone = configs.clone();
-                    match args.section.clone().as_str() {
+                    match args.section.clone().unwrap().as_str() {
                         "logs_configurations" => {
-                            match args.section.clone().as_str() {
+                            match args.field.clone().unwrap().as_str() {
                                 "write_to_file" => {
                                     println!("{}: {}", "Value".cyan(), configs_get_opt_clone.logs_configurations.write_to_file); 
                                 }
@@ -324,7 +292,7 @@ impl Builtin {
                                     println!("{}: {}", "Value".cyan(), configs_get_opt_clone.logs_configurations.write_to_stdout); 
                                 }
                                 &_ => {
-                                        println!("{}: No such field", "config".blue());
+                                    println!("{}: No such field", "config".blue());
                                     ()
                                 }
                             }
@@ -350,7 +318,7 @@ impl Builtin {
     }
 
     pub fn read_file(arguments: Vec<String>) {
-        match ReadArgs::from_iter_safe(arguments) {
+        match ReadArgs::try_parse_from(arguments) {
             Ok(opts) => {
                 let mut is_exec = opts.file.is_executable();
                 if opts.force_opt {
@@ -426,7 +394,7 @@ impl Builtin {
     }
     
     pub fn list_cmd(arguments: Vec<String>) -> Result<(), String> {
-        let args_obj = LsArgs::from_iter_safe(arguments);
+        let args_obj = LsArgs::try_parse_from(arguments);
         match args_obj {
             Ok(opt) => {
                 info!("commands::list_cmd(): Listing files in {}", opt.dir);

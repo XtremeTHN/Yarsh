@@ -94,6 +94,10 @@ pub fn setup() -> () {
 
             let mut loggers: Vec<Box<dyn simplelog::SharedLogger>> = Vec::new();
 
+            if configs.logs_configurations.write_to_stdout {
+                loggers.push(TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed, ColorChoice::Auto));
+            }
+
             if configs.logs_configurations.write_to_file {
                 loggers.push(WriteLogger::new(LevelFilter::Info, Config::default(), log_file));
             }
