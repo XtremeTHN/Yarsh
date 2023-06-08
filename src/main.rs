@@ -60,6 +60,7 @@ fn main() {
                 }
             }
         }
+        info!("thread : killer: Thread closed...");
     });
 
     let mut prompt = format!("{} >> ", current_dir().unwrap().to_string_lossy());
@@ -160,5 +161,6 @@ fn main() {
     }
     #[cfg(feature = "with-file-history")]
     rl.save_history("history.txt");
-    //thread.join();
+    should_stop.store(true, Ordering::Relaxed); 
+    killer.join();
 }
