@@ -17,3 +17,6 @@ def get_last_log():
     with open(max(times), "r") as file:
         content = file.read()
         return content
+
+if __name__ == "__main__":
+    print(get_last_log())

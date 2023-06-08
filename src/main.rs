@@ -82,15 +82,7 @@ fn main() {
                 if let Some(unknown_cmd) = shell_cmd.get(0) {
                     match unknown_cmd.as_str() {
                         "ls" => {
-                            if shell_cmd.get(1).is_some() {
-                                if let Err(err) = Builtin::list_cmd(shell_cmd[1].clone()) {
-                                    println!("ls: {}", err);
-                                };
-                            } else {
-                                if let Err(err) = Builtin::list_cmd(".".to_string()) {
-                                    println!("ls: {}", err);
-                                };
-                            }
+                            Builtin::list_cmd(shell_cmd);
                         },
                         "cd" => {
                             if shell_cmd.get(1).is_some() {
@@ -116,21 +108,22 @@ fn main() {
                         }
 
                         "read" => {
-                            if let Some(file_path) = shell_cmd.get(1) {
-                                if file_path == "-f" {
-                                    if let Some(file_path2) = shell_cmd.get(2) {
-                                        Builtin::read_file(PathBuf::from(file_path2), true);
-                                    } else {
-                                        println!("{}: you need to specify the file path to be readed", "read".green());
-                                        continue;
-                                    }
-                                } else {
-                                    Builtin::read_file(PathBuf::from(file_path), false);
-                                }
-                            } else {
-                                println!("{}: you need to specify the file path to be readed", "read".green());
-                                continue;
-                            }
+                            // if let Some(file_path) = shell_cmd.get(1) {
+                            //     if file_path == "-f" {
+                            //         if let Some(file_path2) = shell_cmd.get(2) {
+                            //             Builtin::read_file(PathBuf::from(file_path2), true);
+                            //         } else {
+                            //             println!("{}: you need to specify the file path to be readed", "read".green());
+                            //             continue;
+                            //         }
+                            //     } else {
+                            //         Builtin::read_file(PathBuf::from(file_path), false);
+                            //     }
+                            // } else {
+                            //     println!("{}: you need to specify the file path to be readed", "read".green());
+                            //     continue;
+                            // }
+                            Builtin::read_file(shell_cmd);
                         }
 
                         "config" => {

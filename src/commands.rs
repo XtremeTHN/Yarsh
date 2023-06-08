@@ -2,6 +2,7 @@ use crossterm::style::Stylize;
 use crossterm::{execute, terminal};
 use crossterm::cursor::MoveTo;
 use log::{info, debug, error};
+use structopt::{StructOpt, clap};
 use std::path::Path;
 use std::process::Child;
 use std::time::SystemTime;
@@ -190,83 +191,152 @@ pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
     Ok(None)
 }
 
+#[derive(StructOpt, Clone)]
+#[structopt(
+    name = "List",
+    about = "List files in a specified directory, or in the current working directory"
+)]
+struct LsArgs {
+    #[structopt(
+        name = "DIRECTORY",
+        default_value = ".",
+    )]
+    dir: String,
+}
+
+#[derive(StructOpt, Clone)]
+#[structopt(
+    name = "Config",
+    about = "Tool for manipulating the config of yarsh",
+    group = clap::ArgGroup::with_name("verb").required(true),
+    group = clap::ArgGroup::with_name("brev").required(true),
+)]
+struct ConfigArgs {
+    #[structopt(
+        short = "s",
+        long = "--set",
+        help = "Specifies that you want to set a value in the configs",
+        requires("verb")
+    )]
+    set_opt: bool,
+
+    #[structopt(
+        short = "g",
+        long = "--get",
+        help = "Specifies that you want to get a value in the configs",
+        requires("brev")
+    )]
+    get_opt: bool,
+
+    #[structopt(
+        short = "l",
+        long = "--list",
+        help = "List all values of the configs",
+    )]
+    list_opt: bool,
+
+    #[structopt(
+        name = "SECTION",
+        group = "verb",
+        group = "brev"
+    )]
+    section: String,
+
+    #[structopt(
+        name = "FIELD",
+        group = "verb",
+        group = "brev"
+    )]
+    field: String,
+
+    #[structopt(
+        name = "VALUE",
+        group = "verb",
+        group = "brev"
+    )]
+    value: String,
+}
+
+#[derive(StructOpt, Clone)]
+#[structopt(
+    name = "Config",
+    about = "Tool for manipulating the config of yarsh"
+)]
+struct ReadArgs {
+    #[structopt(
+        short = "-f",
+        long = "--force",
+        help = "Specifies that you want to force the read of a file"
+    )]
+    force_opt: bool,
+
+    #[structopt(
+        name = "FILE"
+    )]
+    file: PathBuf,
+}
 pub struct Builtin {}
 
 impl Builtin {
     pub fn config_cmd(arguments: Vec<String>) {
         let mut configs = setup::load_conf();
-        if let Some(operation) = arguments.get(1) {
-            match operation.as_str() {
-                "-l" => {
+        match ConfigArgs::from_iter_safe(arguments) {
+            Ok(args) => {
+                if args.list_opt {
                     println!("{}: Listing values...", "config".blue());
                     println!("{} ({}):", "Logs Configurations".bold(), "logs_configurations".green());
                     println!("  write_to_file: {}", configs.logs_configurations.write_to_file);
                     println!("  write_to_stdout: {}", configs.logs_configurations.write_to_stdout);
-                },
-                "-s" => {
-                    let section = arguments.get(2);
-                    let key = arguments.get(3);
-                    let value = arguments.get(4);
-
-                    if key.is_none() || section.is_none() || value.is_none() {
-                        println!("{}: Insufficient arguments, expected 2 found {}", "config".blue(), arguments.len() - 2);
-                        ()
-                    } else {
-                        match section.clone().unwrap().as_str() {
-                            "logs_configurations" => {
-                                match key.clone().unwrap().as_str() {
-                                    "write_to_file" => {
-                                        configs.logs_configurations.write_to_file = value.clone().unwrap().parse().unwrap();
-                                        write_conf(configs);
-                                    }
-                                    "write_to_stdout" => {
-                                        configs.logs_configurations.write_to_stdout = value.clone().unwrap().parse().unwrap();
-                                        write_conf(configs);
-                                    }
-                                    &_ => {
-                                        println!("{}: No such field", "config".blue());
-                                        ()
-                                    }
+                }
+                if args.set_opt {
+                    let mut configs_set_opt_clone = configs.clone();
+                    match args.section.clone().as_str() {
+                        "logs_configurations" => {
+                            match args.field.clone().as_str() {
+                                "write_to_file" => {
+                                    configs_set_opt_clone.logs_configurations.write_to_file = args.value.clone().parse().unwrap();
+                                    write_conf(configs_set_opt_clone);
                                 }
-                            }
-                            &_ => {
-                                println!("{}: No such section", "config".blue());
+                                "write_to_stdout" => {
+                                    configs_set_opt_clone.logs_configurations.write_to_stdout = args.value.clone().parse().unwrap();
+                                    write_conf(configs_set_opt_clone);
+                                }
+                                &_ => {
+                                    println!("{}: No such field", "config".blue());
+                                    ()
+                                }
                             }
                         }
-                    }
-
-                },
-                "-g" => {
-                    let section = arguments.get(2);
-                    let key = arguments.get(3);
-
-                    if key.is_none() || section.is_none() {
-                        println!("{}: Insufficient arguments, expected 2 found {}", "config".blue(), arguments.len() - 2);
-                        ()
-                    } else {
-                        info!("{}", section.clone().unwrap().as_str());
-                        match section.clone().unwrap().as_str() {
-                            "logs_configurations" => {
-                                match key.clone().unwrap().as_str() {
-                                    "write_to_file" => {
-                                        println!("{}: {}", "Value".cyan(), configs.logs_configurations.write_to_file); 
-                                    }
-                                    "write_to_stdout" => {
-                                        println!("{}: {}", "Value".cyan(), configs.logs_configurations.write_to_stdout); 
-                                    }
-                                    &_ => {
-                                        println!("{}: No such field", "config".blue());
-                                        ()
-                                    }
-                                }
-                            }
-                            &_ => {
-                                println!("{}: No such section", "config".blue());
-                            }
+                        &_ => {
+                            println!("{}: No such section", "config".blue());
                         }
                     }
                 }
-                &_ => {}
+                if args.get_opt {
+                    let mut configs_get_opt_clone = configs.clone();
+                    match args.section.clone().as_str() {
+                        "logs_configurations" => {
+                            match args.section.clone().as_str() {
+                                "write_to_file" => {
+                                    println!("{}: {}", "Value".cyan(), configs_get_opt_clone.logs_configurations.write_to_file); 
+                                }
+                                "write_to_stdout" => {
+                                    println!("{}: {}", "Value".cyan(), configs_get_opt_clone.logs_configurations.write_to_stdout); 
+                                }
+                                &_ => {
+                                        println!("{}: No such field", "config".blue());
+                                    ()
+                                }
+                            }
+                        }
+                        &_ => {
+                            println!("{}: No such section", "config".blue());
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                println!("{err}");
             }
         }
     }
@@ -279,99 +349,117 @@ impl Builtin {
         Ok(())
     }
 
-    pub fn read_file(file_path: PathBuf, force_read: bool) {
-        let mut is_exec = file_path.is_executable();
-        if force_read {
-            is_exec = false;
-        }
-        match is_exec {
-            false => {
-                let file = fs::File::open(file_path.clone());
-                info!("commands::Builtin::read_file(): Reading file...");
-                match file {
-                    Ok(mut file_obj) => {
-                        info!("commands::Builtin::read_file(): Creating buffer...");
-                        let mut buffer = String::new();
-                        match file_obj.read_to_string(&mut buffer) {
-                            Ok(_) => println!("{}", buffer),
+    pub fn read_file(arguments: Vec<String>) {
+        match ReadArgs::from_iter_safe(arguments) {
+            Ok(opts) => {
+                let mut is_exec = opts.file.is_executable();
+                if opts.force_opt {
+                    is_exec = false;
+                }
+                match is_exec {
+                    false => {
+                        let file = fs::File::open(opts.file.clone());
+                        info!("commands::Builtin::read_file(): Reading file...");
+                        match file {
+                            Ok(mut file_obj) => {
+                                info!("commands::Builtin::read_file(): Creating buffer...");
+                                let mut buffer = String::new();
+                                match file_obj.read_to_string(&mut buffer) {
+                                    Ok(_) => println!("{}", buffer),
+                                    Err(err) => {
+                                        error!("commands::Builtin::read_file(): Error while trying to save file content to the buffer");
+                                        error!("commands::Builtin::read_file(): {}", err);
+                                        println!("{}: Error while trying to read {}", "read".green(), opts.file.as_path().to_str().unwrap());
+                                        println!("{}: More information in the logs (You can use the 'logs last_log' command)", "read".green());
+                                    }
+                                }
+                            }
                             Err(err) => {
-                                error!("commands::Builtin::read_file(): Error while trying to save file content to the buffer");
+                                error!("commands::Builtin::read_file(): Error while trying to open the file");
                                 error!("commands::Builtin::read_file(): {}", err);
-                                println!("{}: Error while trying to read {}", "read".green(), file_path.as_path().to_str().unwrap());
+                                println!("{}: Error while trying to read {}", "read".green(), err);
                                 println!("{}: More information in the logs (You can use the 'logs last_log' command)", "read".green());
                             }
                         }
                     }
-                    Err(err) => {
-                        error!("commands::Builtin::read_file(): Error while trying to open the file");
-                        error!("commands::Builtin::read_file(): {}", err);
-                        println!("{}: Error while trying to read {}", "read".green(), err);
-                        println!("{}: More information in the logs (You can use the 'logs last_log' command)", "read".green());
+                    true => {
+                        info!("commands::Builtin::read_file(): Executable file detected");
+                        info!("commands::Builtin::read_file(): Reading metadata...");
+                        let metadata = fs::metadata(opts.file.clone());
+                        match metadata {
+                            Ok(md_obj) => {
+                                println!("{}: Executable file detected! Reading metadata instead of the file content...", "read".green());
+                                let mut metadata_formated: Vec<String> = vec![];
+
+                                let lm = md_obj.accessed().unwrap_or(SystemTime::now());
+                                
+                                let mut read_write_perms = String::new();
+                                if md_obj.permissions().readonly() {
+                                    read_write_perms.push_str(format!("{}: Read only", "Permissions".blue().bold()).as_str());
+                                } else {
+                                    read_write_perms.push_str(format!("{}: Read and write", "Permissions".blue().bold()).as_str());
+                                }
+                                
+                                metadata_formated.push(
+                                    format!("{}: {}", "Last Modified".blue().bold(), format_system_time(lm)),
+                                );
+                                metadata_formated.push(
+                                    read_write_perms
+                                );
+                                info!("commands::Builtin::read_file(): Showing metadata...");
+                                columnize_text(&metadata_formated);
+                            }
+                            Err(err) => {
+                                error!("commands::Builtin::read_file(): Error while trying to get file metadata");
+                                error!("commands::Builtin::read_file(): {}", err);
+                                println!("read: Couldnt read {} metadata", opts.file.as_path().to_str().unwrap());
+                                ()
+                            }
+                        }
                     }
                 }
             }
-            true => {
-                info!("commands::Builtin::read_file(): Executable file detected");
-                info!("commands::Builtin::read_file(): Reading metadata...");
-                let metadata = fs::metadata(file_path.clone());
-                match metadata {
-                    Ok(md_obj) => {
-                        println!("{}: Executable file detected! Reading metadata instead of the file content...", "read".green());
-                        let mut metadata_formated: Vec<String> = vec![];
-
-                        let lm = md_obj.accessed().unwrap_or(SystemTime::now());
-                        
-                        let mut read_write_perms = String::new();
-                        if md_obj.permissions().readonly() {
-                            read_write_perms.push_str(format!("{}: Read only", "Permissions".blue().bold()).as_str());
-                        } else {
-                            read_write_perms.push_str(format!("{}: Read and write", "Permissions".blue().bold()).as_str());
-                        }
-                        
-                        metadata_formated.push(
-                            format!("{}: {}", "Last Modified".blue().bold(), format_system_time(lm)),
-                        );
-                        metadata_formated.push(
-                            read_write_perms
-                        );
-                        info!("commands::Builtin::read_file(): Showing metadata...");
-                        columnize_text(&metadata_formated);
-                    }
-                    Err(err) => {
-                        error!("commands::Builtin::read_file(): Error while trying to get file metadata");
-                        error!("commands::Builtin::read_file(): {}", err);
-                        println!("read: Couldnt read {} metadata", file_path.as_path().to_str().unwrap());
-                        ()
-                    }
-                }
+            Err(err) => {
+                println!("{err}");
             }
         }
     }
     
-    pub fn list_cmd(work_dir: String) -> Result<(), String> {
-        info!("commands::list_cmd(): Listing files in {}", work_dir);
-        let work_dir_convertion = PathBuf::from(&work_dir);
-        let mut colored_vector: Vec<String> = vec![];
-        //if let Ok(iterator) = work_dir_convertion.read_dir() {
-        match work_dir_convertion.read_dir() {
-            Ok(iterator) => {
-                for x in iterator {
-                    if x.as_ref().unwrap().path().is_dir() {
-                        let file = x.unwrap().path().clone();
-                        colored_vector.push(file.file_name().unwrap().to_str().unwrap().blue().to_string());
-                        
-                    } else if x.as_ref().unwrap().path().is_symlink() {
-                        let file = x.unwrap().path().clone();
-                        colored_vector.push(file.file_name().unwrap().to_str().unwrap().green().to_string());
-                    } else {
-                        let file = x.unwrap().path().clone();
-                        colored_vector.push(file.file_name().unwrap().to_str().unwrap().yellow().to_string());
+    pub fn list_cmd(arguments: Vec<String>) -> Result<(), String> {
+        let args_obj = LsArgs::from_iter_safe(arguments);
+        match args_obj {
+            Ok(opt) => {
+                info!("commands::list_cmd(): Listing files in {}", opt.dir);
+                let work_dir_convertion = PathBuf::from(&opt.dir);
+                let mut colored_vector: Vec<String> = vec![];
+                //if let Ok(iterator) = work_dir_convertion.read_dir() {
+                match work_dir_convertion.read_dir() {
+                    Ok(iterator) => {
+                        for x in iterator {
+                            if x.as_ref().unwrap().path().is_dir() {
+                                let file = x.unwrap().path().clone();
+                                colored_vector.push(file.file_name().unwrap().to_str().unwrap().blue().to_string());
+                                
+                            } else if x.as_ref().unwrap().path().is_symlink() {
+                                let file = x.unwrap().path().clone();
+                                colored_vector.push(file.file_name().unwrap().to_str().unwrap().green().to_string());
+                            } else {
+                                let file = x.unwrap().path().clone();
+                                colored_vector.push(file.file_name().unwrap().to_str().unwrap().yellow().to_string());
+                            }
+                        }
+                        columnize_text(&colored_vector);
+                        Ok(())
                     }
+                    Err(err) => Err(format!("Cannot read the directory. Error: {}", err)),
                 }
-                columnize_text(&colored_vector);
-                Ok(())
+            },
+            Err(err) => {
+                println!("{err}");
+                Err(err.to_string())
             }
-            Err(err) => Err(format!("Cannot read the directory. Error: {}", err)),
-        }
+        };
+        Err(String::new())
     }
+        
 }

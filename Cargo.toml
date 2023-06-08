@@ -21,5 +21,6 @@ serde = { version = "1.0.163", features = ["derive"] }
 serde_yaml = "0.9.21"
 shellwords = "1.1.0"
 simplelog = "0.12.1"
+structopt = "0.3.26"
 term_size = "0.3.2"
 walkdir = "2.3.3"
