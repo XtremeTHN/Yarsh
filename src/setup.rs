@@ -1,5 +1,4 @@
 use directories::ProjectDirs;
-use rustyline::config;
 use std::fs::{create_dir_all, File};
 use std::io::{Read,Write};
 use chrono::Utc;
@@ -24,17 +23,6 @@ impl Default for YamlConfiguration {
     fn default() -> Self {
         YamlConfiguration { logs_configurations: LogConfig { write_to_file: true, write_to_stdout: false } }
     }
-}
-
-#[macro_export] macro_rules! set_config_key {
-    ($struct:expr, $field:ident, $value:expr) => {
-        {
-            // Creamos una nueva instancia del struct modificando el campo deseado
-            let mut modified_struct = $struct;
-            modified_struct.$field = $value;
-            modified_struct
-        }
-    };
 }
 
 pub fn setup() -> () {
@@ -151,31 +139,6 @@ pub fn load_conf() -> YamlConfiguration {
             }
         }
     }
-}
-
-pub fn open_config() -> Result<File, String> {
-    let base_dir = ProjectDirs::from("", "", "yarp");
-    if let Some(proj_obj) = base_dir {
-        let mut config_path = proj_obj.config_dir().to_path_buf();
-        config_path.push("preferences.yml");
-
-        let conf_file_obj = File::create(config_path);
-        match conf_file_obj {
-            Ok(file) => {
-                Ok(file)
-            }
-            Err(err) => {
-                error!("setup::open_config(): Error while trying to open the config file");
-                error!("setup::open_config(): {}", err);
-                Err(String::from("Couldnt open the config file"))
-            }
-        }
-
-    } else {
-        error!("setup::open_config(): Couldnt get the data directory by an unkown error");
-        Err(String::from("Couldnt open the config file"))
-    }
-
 }
 
 pub fn write_conf(configs: YamlConfiguration) {

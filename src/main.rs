@@ -1,8 +1,7 @@
-use std::{thread, path::{PathBuf, Path}, env::{set_current_dir, current_dir}, process::Child, sync::{mpsc, atomic::AtomicBool, atomic::Ordering, Arc}};
+use std::{thread, path::{Path}, env::{set_current_dir, current_dir}, sync::{mpsc, atomic::AtomicBool, atomic::Ordering, Arc}};
 use rustyline::error::ReadlineError;
 use crossterm::style::Stylize;
 use rustyline::{DefaultEditor};
-use directories::ProjectDirs;
 use shellwords::split;
 use libc::{kill, pid_t, SIGTERM};
 use log::{info, error};
@@ -10,7 +9,7 @@ use log::{info, error};
 mod commands;
 mod setup;
 
-use commands::{Builtin, wait_for_command, run_external_command};
+use commands::{Builtin, run_external_command};
 
 
 fn main() {
@@ -36,14 +35,26 @@ fn main() {
 
     let ctrlc_sender = sv.clone();
     let ctrlc_ccppid = Arc::clone(&current_command_pid);
-    ctrlc::set_handler(move || {
-        ctrlc_sender.send(*ctrlc_ccppid);
+
+    let ctrlc_err = ctrlc::set_handler(move || {
+        if let Err(err) = ctrlc_sender.send(*ctrlc_ccppid) {
+            error!("main : ctrlc : set_handler(): Cannot send information between threads");
+            error!("main : ctrlc : set_handler(): Error code: {err}");
+            println!("yarp: Cannot send the pid of the current program");
+        }
     });
+
+    if let Err(err) = ctrlc_err {
+        error!("main: Cannot create ctrlc handler. The killer thread will not work");
+        error!("main: {err}");
+        println!("The killer thread cannot be initialized");
+    }
 
     let killer = thread::spawn(move || {
         while daemon_should_stop.load(Ordering::Relaxed) {
             match rv.recv() {
                 Ok(pid) => {
+                    info!("thread : killer : loop (while) : match : Ok(pid): Killing process with pid of {pid}");
                     let res = unsafe { kill(pid as pid_t, SIGTERM) };
                     if res == -1 {
                         error!("thread : killer : loop (while) : match : Ok(pid): Cannot kill process with pid of {pid}");
@@ -133,14 +144,15 @@ fn main() {
 
                         "exit" => break,
                         &_ => {
-                            let sh_cmd = shell_cmd[0].to_string();
-
                             if let Ok(output_obj) = run_external_command(&shell_cmd.join(" ")) {
                                 let mut unwraped_output = output_obj.unwrap();
                                 current_command_pid = Arc::new(unwraped_output.id());
-                                unwraped_output.wait();
+                                if let Err(err) = unwraped_output.wait() {
+                                    error!("main : loop : match : &_: Cannot wait for the command");
+                                    error!("main : loop : match : &_: {err}");
+                                    println!("yarp: Cannot wait for the command...");
+                                }
                             }
-                            
                         }
                     }
                 }
@@ -162,5 +174,8 @@ fn main() {
     #[cfg(feature = "with-file-history")]
     rl.save_history("history.txt");
     should_stop.store(true, Ordering::Relaxed); 
-    killer.join();
+    if let Err(err) = killer.join() {
+        error!("main: Unkown error has ocurred while waiting for the killer thread to exit...");
+        error!("{:?}", err);
+    }
 }

@@ -1,20 +1,16 @@
 use crossterm::style::Stylize;
 use crossterm::{execute, terminal};
 use crossterm::cursor::MoveTo;
-use log::{info, debug, error};
+use log::{info, error};
 use clap::{Parser};
-use std::path::Path;
 use std::process::Child;
 use std::time::SystemTime;
 use std::{env, fs, process::{Command, Stdio}, path::PathBuf};
-use std::io::{self, Write, Read, BufRead};
+use std::io::{self, Write, Read};
 use is_executable::IsExecutable;
 use term_size::dimensions;
-use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::Pid;
 
-use crate::setup::{self, open_config, write_conf};
-use walkdir::WalkDir;
+use crate::setup::{self, write_conf};
 
 pub fn columnize_text(items: &Vec<String>) {
     info!("commands::columnize_text(): Columnizing text...");
@@ -36,40 +32,6 @@ pub fn columnize_text(items: &Vec<String>) {
         error!("commands::columnize_text(): Cannot retrieve terminal width. Columnizing without formating...");
         for item in items {
             println!("{}", item);
-        }
-    }
-}
-
-pub fn wait_for_command(pid: u32) {
-    let pid = Pid::from_raw(pid as i32); // Reemplaza con el PID del proceso que deseas verificar
-    loop {
-        match waitpid(pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG)) {
-            Ok(WaitStatus::StillAlive) => {
-                continue;
-            }
-            Ok(WaitStatus::Exited(_, code)) => {
-                break;
-            }
-            Ok(WaitStatus::Signaled(_, _, _)) => {
-                break;
-            }
-            Ok(WaitStatus::Stopped(_, _)) => {
-                break;
-            }
-            Ok(WaitStatus::Continued(_)) => {
-                break;
-            }
-            Ok(WaitStatus::PtraceEvent(_, _, _)) => {
-                break;
-            }
-            Ok(WaitStatus::PtraceSyscall(_)) => {
-                break;
-            }
-            Err(err) => {
-                println!("No se pudo obtener el estado del proceso con PID {}.", pid);
-                println!("{err}");
-                break;
-            }
         }
     }
 }
@@ -98,42 +60,6 @@ pub fn find_executable_command(executable_name: &str) -> Option<PathBuf> {
     }
     found
 }
-
-// pub fn run_external_command(input: Vec<String>) -> Result<Child, &str>{
-//         let executable_name = &input[0];
-//         let found = find_executable_command(executable_name);
-        
-//         if let Some(cmd2) = executable_name.find("|") {
-//             let executable_name_2 = executable_name.clone();
-//             let (_, cmd) = executable_name_2.split_at(cmd2);
-//             find_executable_command(cmd);
-//         } else {
-//             // Si el ejecutable no se encuentra
-//             if let Some(executable_path) = found {
-//                 if let Some(mut prog_args) = args {
-//                     prog_args.drain(0..1);
-//                     // Ejecutar el archivo
-//                     info!("commands::run_external_command(): Executing program...");
-
-//                     let output = Command::new(executable_path)
-//                         .args(prog_args)
-//                         .stdout(Stdio::inherit())
-//                         .spawn();
-                    
-//                     Ok(output.unwrap())
-//                 } else {
-//                     let output = Command::new(executable_path)
-//                         .stdout(Stdio::inherit())
-//                         .spawn();
-                    
-//                     Ok(output.unwrap())
-//                 }
-//             } else {
-//                 println!("yarp: unknown command: {}", executable_name);
-//                 Err("Executable not found")
-//             }
-//         }
-// }
 
 pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
     // Dividir el comando en partes separadas por el carácter '|'
@@ -281,7 +207,7 @@ impl Builtin {
                     }
                 }
                 if args.get_opt {
-                    let mut configs_get_opt_clone = configs.clone();
+                    let configs_get_opt_clone = configs.clone();
                     match args.section.clone().unwrap().as_str() {
                         "logs_configurations" => {
                             match args.field.clone().unwrap().as_str() {
@@ -393,14 +319,15 @@ impl Builtin {
         }
     }
     
-    pub fn list_cmd(arguments: Vec<String>) -> Result<(), String> {
+    pub fn list_cmd(arguments: Vec<String>) {
         let args_obj = LsArgs::try_parse_from(arguments);
         match args_obj {
             Ok(opt) => {
-                info!("commands::list_cmd(): Listing files in {}", opt.dir);
+                info!("commands::Builtin::list_cmd(): Listing files in {}", opt.dir);
                 let work_dir_convertion = PathBuf::from(&opt.dir);
                 let mut colored_vector: Vec<String> = vec![];
                 //if let Ok(iterator) = work_dir_convertion.read_dir() {
+                info!("commands::Builtin::list_cmd(): Formating text...");
                 match work_dir_convertion.read_dir() {
                     Ok(iterator) => {
                         for x in iterator {
@@ -417,17 +344,20 @@ impl Builtin {
                             }
                         }
                         columnize_text(&colored_vector);
-                        Ok(())
                     }
-                    Err(err) => Err(format!("Cannot read the directory. Error: {}", err)),
+                    Err(err) => {
+                        error!("commands::Builtin::list_cmd(): Cannot read the specified directory");
+                        error!("commands::Builtin::list_cmd(): {err}");
+                        println!("ls: Cannot read this directory");
+                    },
                 }
             },
             Err(err) => {
-                println!("{err}");
-                Err(err.to_string())
+                error!("commands::Builtin::list_cmd(): Cannot list files because this error:");
+                error!("commands::Builtin::list_cmd(): {err}");
+                println!("ls: Cannot list files");
             }
         };
-        Err(String::new())
     }
         
 }
