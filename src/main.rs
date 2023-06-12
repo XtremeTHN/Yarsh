@@ -11,6 +11,11 @@ mod setup;
 
 use commands::{Builtin, run_external_command};
 
+enum SendTypes {
+    ShouldExit(u32),
+    Pid(u32),
+}
+
 
 fn main() {
     setup::setup();
@@ -31,15 +36,15 @@ fn main() {
     let should_stop = Arc::new(AtomicBool::new(false));
     let daemon_should_stop = Arc::clone(&should_stop);
 
-    let (sv, rv) = mpsc::channel::<u32>();
+    let (sv, rv) = mpsc::channel::<SendTypes>();
 
     let ctrlc_sender = sv.clone();
     let ctrlc_ccppid = Arc::clone(&current_command_pid);
 
     let ctrlc_err = ctrlc::set_handler(move || {
-        if let Err(err) = ctrlc_sender.send(*ctrlc_ccppid) {
+        if let Err(err) = ctrlc_sender.send(SendTypes::Pid(*ctrlc_ccppid)) {
             error!("main : ctrlc : set_handler(): Cannot send information between threads");
-            error!("main : ctrlc : set_handler(): Error code: {err}");
+            error!("main : ctrlc : set_handler(): {err}");
             println!("yarp: Cannot send the pid of the current program");
         }
     });
@@ -51,27 +56,37 @@ fn main() {
     }
 
     let killer = thread::spawn(move || {
-        while daemon_should_stop.load(Ordering::Relaxed) {
+        loop {
             match rv.recv() {
-                Ok(pid) => {
-                    info!("thread : killer : loop (while) : match : Ok(pid): Killing process with pid of {pid}");
-                    let res = unsafe { kill(pid as pid_t, SIGTERM) };
-                    if res == -1 {
-                        error!("thread : killer : loop (while) : match : Ok(pid): Cannot kill process with pid of {pid}");
-                        error!("thread : killer : loop (while) : match : Ok(pid): kill() command of the crate libc returned -1");
-                        println!("yarp: Couldnt kill process with pid of {pid}");
+                Ok(SendTypes::Pid(pid)) => {
+                    if pid > 0 {
+                        info!("thread : killer : loop (while) : match : Ok(pid): Killing process with pid of {pid}");
+                        let res = unsafe { kill(pid as pid_t, SIGTERM) };
+                        if res == -1 {
+                            error!("thread : killer : loop (while) : match : Ok(pid): Cannot kill process with pid of {pid}");
+                            error!("thread : killer : loop (while) : match : Ok(pid): kill() command of the crate libc returned -1");
+                            println!("yarp: Couldnt kill process with pid of {pid}");
+                            continue;
+                        }
+                    } else {
+                        info!("thread : killer : loop (while) : match : Ok(pid): Theres no current process to be killed");
                         continue;
                     }
+                },
+                Ok(SendTypes::ShouldExit(_)) => {
+                    info!("thread : killer: Thread closed...");
+                    break;
                 }
+
                 Err(err) => {
                     error!("thread : killer : loop (while) : match : Err(err): Error while trying to recieve pid from the main thread");
                     error!("thread : killer : loop (while) : match : Err(err): {}", err);
                     println!("yarp: Error while trying to kill the process");
                     continue;
                 }
+
             }
-        }
-        info!("thread : killer: Thread closed...");
+        } 
     });
 
     let mut prompt = format!("{} >> ", current_dir().unwrap().to_string_lossy());
@@ -174,6 +189,12 @@ fn main() {
     #[cfg(feature = "with-file-history")]
     rl.save_history("history.txt");
     should_stop.store(true, Ordering::Relaxed); 
+    info!("main: Waiting for the killer thread to exit");
+    if let Err(err) = sv.send(SendTypes::ShouldExit(1)) {
+        error!("main: Cannot send the stop flag to the killer thread.");
+        error!("main: {err}. Forcibly closing...");
+        std::process::exit(0);
+    }
     if let Err(err) = killer.join() {
         error!("main: Unkown error has ocurred while waiting for the killer thread to exit...");
         error!("{:?}", err);

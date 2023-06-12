@@ -64,6 +64,24 @@ pub fn find_executable_command(executable_name: &str) -> Option<PathBuf> {
 pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
     // Dividir el comando en partes separadas por el carácter '|'
     let commands: Vec<&str> = command.trim().split('|').collect();
+
+    let more_commands: Vec<&str> = command.trim().split(";").collect();
+    if more_commands.len() > 1 {
+        for x in more_commands {
+            match run_external_command(x) {
+                Ok(out_opt) => {
+                    if let Some(mut out) = out_opt {
+                        out.wait();
+                    }
+                },
+                Err(err) => {
+                    error!("commands::run_external_command : loop (for) : match : Err(err): Cannot execute the extra command: {x}");
+                    error!("commands::run_external_command : loop (for) : match : Err(err): {err}");
+                    println!("yarp: Cannot run the executable {x}");
+                }
+            }
+        }
+    }
     
     // Procesar cada comando en el pipeline
     let mut previous_output = None;
@@ -133,7 +151,9 @@ struct ConfigArgs {
     #[arg(
         short = 's',
         long = "set", 
-        help = "Specifies that you want to set a value in the configs")]
+        help = "Specifies that you want to set a value in the configs",
+        requires_all = &["section", "field", "value"],
+    )]
     set_opt: bool,
 
     #[arg(
@@ -326,7 +346,6 @@ impl Builtin {
                 info!("commands::Builtin::list_cmd(): Listing files in {}", opt.dir);
                 let work_dir_convertion = PathBuf::from(&opt.dir);
                 let mut colored_vector: Vec<String> = vec![];
-                //if let Ok(iterator) = work_dir_convertion.read_dir() {
                 info!("commands::Builtin::list_cmd(): Formating text...");
                 match work_dir_convertion.read_dir() {
                     Ok(iterator) => {
