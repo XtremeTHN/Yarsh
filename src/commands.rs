@@ -81,6 +81,7 @@ pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
                 }
             }
         }
+        return Err("No");
     }
     
     // Procesar cada comando en el pipeline
