@@ -34,7 +34,7 @@ pub fn setup() -> () {
     };
 
     let mut log_dir = base_dir.clone().unwrap().data_dir().to_path_buf();
-    let config_dir = base_dir.clone().unwrap().config_dir().to_path_buf();
+    let config_dir = base_dir.unwrap().config_dir().to_path_buf();
     log_dir.push("logs");
 
     let mut preferences_file = config_dir.clone();
@@ -45,7 +45,7 @@ pub fn setup() -> () {
         error!("{}", err);
         ()
     }
-    if let Err(err) = create_dir_all(config_dir.clone()) {
+    if let Err(err) = create_dir_all(config_dir) {
         error!("Couldn't initialize log file");
         error!("{}", err);
         ()
@@ -113,7 +113,7 @@ pub fn load_conf() -> YamlConfiguration {
         eprintln!("Base dir object is null");
         return default_values;
     } else {
-        let mut config_dir = base_dir.clone().unwrap().config_dir().to_path_buf();
+        let mut config_dir = base_dir.unwrap().config_dir().to_path_buf();
         config_dir.push("preferences.yml");
 
         match File::open(config_dir) {

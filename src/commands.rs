@@ -65,7 +65,7 @@ pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
     // Dividir el comando en partes separadas por el carácter '|'
     let commands: Vec<&str> = command.trim().split('|').collect();
 
-    let more_commands: Vec<&str> = command.trim().split(";").collect();
+    let more_commands: Vec<&str> = command.trim().split(';').collect();
     if more_commands.len() > 1 {
         for x in more_commands {
             match run_external_command(x) {
@@ -88,7 +88,7 @@ pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
     let mut previous_output = None;
     for (index, cmd) in commands.iter().enumerate() {
         // Dividir el comando en partes separadas por espacios en blanco
-        let parts: Vec<&str> = cmd.trim().split_whitespace().collect();
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
         
         // Verificar si hay un ejecutable en la primera parte del comando
         if let Some(executable) = parts.first() {
@@ -107,6 +107,7 @@ pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
                 let stdin = previous_output.map_or(Stdio::inherit(), |output: Child| Stdio::from(output.stdout.unwrap()));
                 
                 // Ejecutar el comando
+                info!("commands::run_external_command(): Executing command...");
                 let child_process = Command::new(executable_path)
                     .args(&parts[1..])
                     .stdout(stdout)
@@ -119,7 +120,6 @@ pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
                         // Obtener la salida estándar del proceso actual para usarla como entrada en el siguiente comando
                         previous_output = Some(child);
                         if index == commands.len() - 1 {
-                            info!("{:?}", previous_output);
                             return Ok(previous_output);
                         }
                     }
@@ -228,10 +228,10 @@ impl Builtin {
                     }
                 }
                 if args.get_opt {
-                    let configs_get_opt_clone = configs.clone();
+                    let configs_get_opt_clone = configs;
                     match args.section.clone().unwrap().as_str() {
                         "logs_configurations" => {
-                            match args.field.clone().unwrap().as_str() {
+                            match args.field.unwrap().as_str() {
                                 "write_to_file" => {
                                     println!("{}: {}", "Value".cyan(), configs_get_opt_clone.logs_configurations.write_to_file); 
                                 }
@@ -260,7 +260,6 @@ impl Builtin {
         let mut stdout = io::stdout();
         execute!(stdout, terminal::Clear(terminal::ClearType::All), MoveTo(0, 0))?;
         stdout.flush()?;
-        info!("Succes");
         Ok(())
     }
 

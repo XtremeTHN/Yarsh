@@ -32,9 +32,6 @@ fn main() {
     }
 
     let mut current_command_pid: Arc<u32> = Arc::new(0);
-    
-    let should_stop = Arc::new(AtomicBool::new(false));
-    let daemon_should_stop = Arc::clone(&should_stop);
 
     let (sv, rv) = mpsc::channel::<SendTypes>();
 
@@ -188,7 +185,6 @@ fn main() {
     }
     #[cfg(feature = "with-file-history")]
     rl.save_history("history.txt");
-    should_stop.store(true, Ordering::Relaxed); 
     info!("main: Waiting for the killer thread to exit");
     if let Err(err) = sv.send(SendTypes::ShouldExit(1)) {
         error!("main: Cannot send the stop flag to the killer thread.");
