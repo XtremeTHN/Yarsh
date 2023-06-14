@@ -3,6 +3,26 @@
 This is a upgraded and with another objective of my project RustyShell.
 Tecnically this project is a fork of RustyShell, so part of the code will be the same. But theres much more features now!
 
+## Lua support
+Now theres lua support!. Unfortunately theres only one built-in class and one built-in function.
+
+#### Functions:
+##### exec
+Execute a binary file from the PATH environment variable
+```lua
+exec("foo --bar")
+```
+
+#### Classes
+##### Alias
+With the Alias class you can change the alias from the configuration files!. **You can modify the configuration with this class but it will not take effect because it is not implemented correctly yet.**
+
+```lua
+alias_obj = Alias:new()
+alias_obj:set_alias("cat", "bat")
+```
+
+
 ## Built-in commands
 
 ##### ls
