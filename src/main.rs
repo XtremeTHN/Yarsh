@@ -1,29 +1,39 @@
-use std::{thread, path::{Path}, env::{set_current_dir, current_dir}, sync::{mpsc, atomic::AtomicBool, atomic::Ordering, Arc}};
-use rustyline::error::ReadlineError;
 use crossterm::style::Stylize;
-use rustyline::{DefaultEditor};
-use shellwords::split;
 use libc::{kill, pid_t, SIGTERM};
-use log::{info, error};
+use log::{error, info};
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
+use shellwords::split;
+use std::{
+    env::{current_dir, set_current_dir},
+    path::Path,
+    sync::{mpsc, Arc},
+    thread,
+};
 
+mod script_loader;
 mod commands;
 mod setup;
 
-use commands::{Builtin, run_external_command};
+use commands::{ExternalCommands, Builtin};
 
 enum SendTypes {
     ShouldExit(u32),
     Pid(u32),
 }
 
-
 fn main() {
     setup::setup();
-    setup::load_conf();
-    info!("Log init successfull");
-    /*let thread = thread::spawn(|| {
-        load_python_plugin_init_files();
-    });*/
+    info!("main: Loading configuration. This will not be the last time...");
+    let configs = setup::load_conf();
+
+    info!("main: Browsing executables in the PATH environment variable...");
+    let external_obj = ExternalCommands::new().unwrap_or_else(|_| {
+        std::process::exit(1);
+    });
+
+    info!("main: Loading scripts...");
+    script_loader::load(configs.scripts_config.files.clone(), external_obj.clone());
 
     let mut rl = DefaultEditor::new().unwrap();
     #[cfg(feature = "with-file-history")]
@@ -39,6 +49,7 @@ fn main() {
     let ctrlc_ccppid = Arc::clone(&current_command_pid);
 
     let ctrlc_err = ctrlc::set_handler(move || {
+        info!("ctrlc_handler: Current pid to kill '{}'", *ctrlc_ccppid);
         if let Err(err) = ctrlc_sender.send(SendTypes::Pid(*ctrlc_ccppid)) {
             error!("main : ctrlc : set_handler(): Cannot send information between threads");
             error!("main : ctrlc : set_handler(): {err}");
@@ -52,44 +63,41 @@ fn main() {
         println!("The killer thread cannot be initialized");
     }
 
-    let killer = thread::spawn(move || {
-        loop {
-            match rv.recv() {
-                Ok(SendTypes::Pid(pid)) => {
-                    if pid > 0 {
-                        info!("thread : killer : loop (while) : match : Ok(pid): Killing process with pid of {pid}");
-                        let res = unsafe { kill(pid as pid_t, SIGTERM) };
-                        if res == -1 {
-                            error!("thread : killer : loop (while) : match : Ok(pid): Cannot kill process with pid of {pid}");
-                            error!("thread : killer : loop (while) : match : Ok(pid): kill() command of the crate libc returned -1");
-                            println!("yarp: Couldnt kill process with pid of {pid}");
-                            continue;
-                        }
-                    } else {
-                        info!("thread : killer : loop (while) : match : Ok(pid): Theres no current process to be killed");
+    let killer = thread::spawn(move || loop {
+        match rv.recv() {
+            Ok(SendTypes::Pid(pid)) => {
+                if pid > 0 {
+                    info!("thread : killer : loop (while) : match : Ok(pid): Killing process with pid of {pid}");
+                    let res = unsafe { kill(pid as pid_t, SIGTERM) };
+                    if res == -1 {
+                        error!("thread : killer : loop (while) : match : Ok(pid): Cannot kill process with pid of {pid}");
+                        error!("thread : killer : loop (while) : match : Ok(pid): kill() command of the crate libc returned -1");
+                        println!("yarp: Couldnt kill process with pid of {pid}");
                         continue;
                     }
-                },
-                Ok(SendTypes::ShouldExit(_)) => {
-                    info!("thread : killer: Thread closed...");
-                    break;
-                }
-
-                Err(err) => {
-                    error!("thread : killer : loop (while) : match : Err(err): Error while trying to recieve pid from the main thread");
-                    error!("thread : killer : loop (while) : match : Err(err): {}", err);
-                    println!("yarp: Error while trying to kill the process");
+                } else {
+                    info!("thread : killer : loop (while) : match : Ok(pid): Theres no current process to be killed");
                     continue;
                 }
-
             }
-        } 
+            Ok(SendTypes::ShouldExit(_)) => {
+                info!("thread : killer: Thread closed...");
+                break;
+            }
+
+            Err(err) => {
+                error!("thread : killer : loop (while) : match : Err(err): Error while trying to recieve pid from the main thread");
+                error!("thread : killer : loop (while) : match : Err(err): {}", err);
+                println!("yarp: Error while trying to kill the process");
+                continue;
+            }
+        }
     });
 
     let mut prompt = format!("{} >> ", current_dir().unwrap().to_string_lossy());
     loop {
         let readline = rl.readline(&prompt);
-        
+
         match readline {
             Ok(line) => {
                 if let Err(err) = rl.add_history_entry(line.as_str()) {
@@ -102,12 +110,12 @@ fn main() {
                     continue;
                 }
                 let shell_cmd = shell_cmd.unwrap();
-                
+
                 if let Some(unknown_cmd) = shell_cmd.get(0) {
                     match unknown_cmd.as_str() {
                         "ls" => {
                             Builtin::list_cmd(shell_cmd);
-                        },
+                        }
                         "cd" => {
                             if shell_cmd.get(1).is_some() {
                                 let binded = &shell_cmd[1].clone();
@@ -122,13 +130,25 @@ fn main() {
                         }
 
                         "echo" => {
-                            println!("{}", shell_cmd.iter().skip(1).cloned().collect::<Vec<String>>().join(" "));
+                            println!(
+                                "{}",
+                                shell_cmd
+                                    .iter()
+                                    .skip(1)
+                                    .cloned()
+                                    .collect::<Vec<String>>()
+                                    .join(" ")
+                            );
                         }
 
                         "clear" => {
                             if let Err(_) = Builtin::clear_screen() {
                                 println!("clear: Error while trying to clear the terminal")
                             };
+                        }
+
+                        "reload_scripts" => {
+                            script_loader::load(configs.scripts_config.files.clone(), external_obj.clone());
                         }
 
                         "read" => {
@@ -156,7 +176,7 @@ fn main() {
 
                         "exit" => break,
                         &_ => {
-                            if let Ok(output_obj) = run_external_command(&shell_cmd.join(" ")) {
+                            if let Ok(output_obj) = external_obj.run_external_command(&shell_cmd.join(" ")) {
                                 let mut unwraped_output = output_obj.unwrap();
                                 current_command_pid = Arc::new(unwraped_output.id());
                                 if let Err(err) = unwraped_output.wait() {
@@ -168,15 +188,19 @@ fn main() {
                         }
                     }
                 }
-            },
+            }
             Err(ReadlineError::Interrupted) => {
-                println!("yarp: If you want to exit the prompt, you need to execute the command 'exit'");
+                println!(
+                    "yarp: If you want to exit the prompt, you need to execute the command 'exit'"
+                );
                 continue;
-            },
+            }
             Err(ReadlineError::Eof) => {
-                println!("yarp: If you want to exit the prompt, you need to execute the command 'exit'");
+                println!(
+                    "yarp: If you want to exit the prompt, you need to execute the command 'exit'"
+                );
                 continue;
-            },
+            }
             Err(err) => {
                 println!("Error: {:?}", err);
                 break;

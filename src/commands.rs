@@ -1,13 +1,18 @@
+use clap::Parser;
+use crossterm::cursor::MoveTo;
 use crossterm::style::Stylize;
 use crossterm::{execute, terminal};
-use crossterm::cursor::MoveTo;
-use log::{info, error};
-use clap::{Parser};
+use is_executable::IsExecutable;
+use log::{error, info};
+use std::io::{self, Read, Write};
+use std::path::{Path, self};
 use std::process::Child;
 use std::time::SystemTime;
-use std::{env, fs, process::{Command, Stdio}, path::PathBuf};
-use std::io::{self, Write, Read};
-use is_executable::IsExecutable;
+use std::{
+    env, fs,
+    path::PathBuf,
+    process::{Command, Stdio},
+};
 use term_size::dimensions;
 
 use crate::setup::{self, write_conf};
@@ -41,108 +46,199 @@ fn format_system_time(time: SystemTime) -> String {
     datetime.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
-pub fn find_executable_command(executable_name: &str) -> Option<PathBuf> {
-    // Obtener la variable PATH
-    let path_var = env::var("PATH").unwrap_or_else(|_| String::new());
-    
-    // Dividir la variable PATH en una lista de directorios
-    let paths: Vec<_> = env::split_paths(&path_var).collect();
-    
-    // Buscar el ejecutable en cada directorio del PATH
-    let mut found = None;
-    for path in paths {
-        let executable_path = path.join(executable_name);
-        if fs::metadata(&executable_path).is_ok() {
-            info!("commands::run_external_command(): Founded an executable on '{}'", executable_path.as_os_str().to_str().unwrap());
-            found = Some(executable_path);
-            break;
-        }
-    }
-    found
+#[derive(Clone)]
+pub struct ExternalCommands {
+    exec_files: Vec<PathBuf>
 }
 
-pub fn run_external_command(command: &str) -> Result<Option<Child>, &str> {
-    // Dividir el comando en partes separadas por el carácter '|'
-    let commands: Vec<&str> = command.trim().split('|').collect();
+pub fn get_exec_vector() -> Result<Vec<PathBuf>, String> {
+    let path_var = env::var("PATH").unwrap_or_else(|_| String::new());
+    let mut exec_vec: Vec<PathBuf> = vec![];
 
-    let more_commands: Vec<&str> = command.trim().split(';').collect();
-    if more_commands.len() > 1 {
-        for x in more_commands {
-            match run_external_command(x) {
-                Ok(out_opt) => {
-                    if let Some(mut out) = out_opt {
-                        out.wait();
-                    }
-                },
-                Err(err) => {
-                    error!("commands::run_external_command : loop (for) : match : Err(err): Cannot execute the extra command: {x}");
-                    error!("commands::run_external_command : loop (for) : match : Err(err): {err}");
-                    println!("yarp: Cannot run the executable {x}");
-                }
-            }
-        }
-        return Err("No");
-    }
-    
-    // Procesar cada comando en el pipeline
-    let mut previous_output = None;
-    for (index, cmd) in commands.iter().enumerate() {
-        // Dividir el comando en partes separadas por espacios en blanco
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
+    let mut dont_exists_count = 0;
+    for path in env::split_paths(&path_var) {
+        info!("commands::get_exec_vector(): Reading {}...", path.as_path().to_str().unwrap());
         
-        // Verificar si hay un ejecutable en la primera parte del comando
-        if let Some(executable) = parts.first() {
-            let found = find_executable_command(executable);
-            
-            // Si el ejecutable no se encuentra
-            if let Some(executable_path) = found {
-                // Configurar las opciones de redirección de entrada/salida
-                let stdout = if index < commands.len() - 1 {
-                    // Si no es el último comando, redirigir la salida al siguiente comando
-                    Stdio::piped()
-                } else {
-                    // Si es el último comando, heredar la salida estándar del proceso padre
-                    Stdio::inherit()
-                };
-                let stdin = previous_output.map_or(Stdio::inherit(), |output: Child| Stdio::from(output.stdout.unwrap()));
-                
-                // Ejecutar el comando
-                info!("commands::run_external_command(): Executing command...");
-                let child_process = Command::new(executable_path)
-                    .args(&parts[1..])
-                    .stdout(stdout)
-                    .stdin(stdin)
-                    .spawn();
-                
-                // Verificar si se pudo ejecutar el comando
-                match child_process {
-                    Ok(child) => {
-                        // Obtener la salida estándar del proceso actual para usarla como entrada en el siguiente comando
-                        previous_output = Some(child);
-                        if index == commands.len() - 1 {
-                            return Ok(previous_output);
+        if path.exists() {
+            let readed = path.read_dir();
+
+            match readed {
+                Ok(read_obj) => {
+                    for entry in read_obj {
+                        if let Ok(folder) = entry {
+                            if folder.path().is_executable() {
+                                exec_vec.push(folder.path().to_path_buf());
+                            }
                         }
                     }
-                    Err(_) => {
-                        return Err("Failed to execute command");
-                    }
                 }
-            } else {
-                println!("yarp: unknown command: {}", executable);
-                return Err("Executable not found");
+                Err(err) => {
+                    error!("commands::get_exec_vector(): Error while trying to read this dir '{}' located in the PATH enviroment variable", path.as_os_str().to_str().unwrap());
+                    return Err(err.to_string());
+                }
+            }
+        } else {
+            dont_exists_count += 1;
+        }
+    }
+    if dont_exists_count > 0 {
+        info!("commands::get_exec_vector(): {dont_exists_count} folder/folders doesn't exists in the PATH environment variable");
+    }
+    Ok(exec_vec)
+}
+
+impl ExternalCommands {
+    pub fn new() -> Result<Self, ()> {
+        let vec_of_exec = get_exec_vector();
+        match vec_of_exec {
+            Ok(vec_ex) => {
+                Ok(ExternalCommands { exec_files: vec_ex })
+            }
+            Err(err) => {
+                error!("commands::ExternalCommands::new(): Error while trying to get the executables vector");
+                error!("commands::ExternalCommands::new(): {err}");
+                println!("yarsh: Error while trying to find the executables in the PATH environment variable");
+                Err(())
             }
         }
     }
-    Ok(None)
+
+    pub fn find_executable_command(&self, executable_name: &str) -> Option<PathBuf> {
+        // Obtener la variable PATH
+        // let path_var = env::var("PATH").unwrap_or_else(|_| String::new());
+    
+        // Dividir la variable PATH en una lista de directorios
+        // let paths: Vec<_> = env::split_paths(&path_var).collect();
+    
+        // Buscar el ejecutable en cada directorio del PATH
+        // let mut found = None;
+        // for path in paths {
+        //     let executable_path = path.join(executable_name);
+        //     if fs::metadata(&executable_path).is_ok() {
+        //         info!(
+        //             "commands::run_external_command(): Founded an executable on '{}'",
+        //             executable_path.as_os_str().to_str().unwrap()
+        //         );
+        //         found = Some(executable_path);
+        //         break;
+        //     }
+        // }
+        // found
+        let binded = PathBuf::from(executable_name);
+        println!("{}", binded.starts_with("./") == true);
+        if binded.starts_with("./") {
+            error!("commands::ExternalCommands::find_executable_command(): Browsing in the current directory");
+
+            match Builtin::getcwd() {
+                Ok(mut path_exec_name) => {
+                    path_exec_name.push(executable_name);
+                    if path_exec_name.exists() {
+                        return Some(path_exec_name);
+                    } else {
+                        return None;
+                    }
+                }
+                Err(err) => {
+                    error!("commands::ExternalCommands::find_executable_command(): Error while trying to get the working directory");
+                    error!("commands::ExternalCommands::find_executable_command(): {err}");
+                    return None;
+                }
+            }
+        }
+        for x in self.exec_files.clone() {
+            if x.ends_with(executable_name) {
+                info!(
+                    "commands::run_external_command(): Founded an executable on '{}'",
+                    x.as_os_str().to_str().unwrap(),
+                );
+                return Some(x);
+            }
+        }
+        None
+    }
+
+    pub fn run_external_command(&self, command: &str) -> Result<Option<Child>, &str> {
+        // Dividir el comando en partes separadas por el carácter '|'
+        let commands: Vec<&str> = command.trim().split('|').collect();
+
+        let more_commands: Vec<&str> = command.trim().split(';').collect();
+        if more_commands.len() > 1 {
+            for x in more_commands {
+                match self.run_external_command(x) {
+                    Ok(out_opt) => {
+                        if let Some(mut out) = out_opt {
+                            out.wait();
+                        }
+                    }
+                    Err(err) => {
+                        error!("commands::run_external_command : loop (for) : match : Err(err): Cannot execute the extra command: {x}");
+                        error!("commands::run_external_command : loop (for) : match : Err(err): {err}");
+                        println!("yarp: Cannot run the executable {x}");
+                    }
+                }
+            }
+            return Err("No");
+        }
+
+        // Procesar cada comando en el pipeline
+        let mut previous_output = None;
+        for (index, cmd) in commands.iter().enumerate() {
+            // Dividir el comando en partes separadas por espacios en blanco
+            let parts: Vec<&str> = cmd.split_whitespace().collect();
+
+            // Verificar si hay un ejecutable en la primera parte del comando
+            if let Some(executable) = parts.first() {
+                let found = self.find_executable_command(executable);
+
+                // Si el ejecutable no se encuentra
+                if let Some(executable_path) = found {
+                    // Configurar las opciones de redirección de entrada/salida
+                    let stdout = if index < commands.len() - 1 {
+                        // Si no es el último comando, redirigir la salida al siguiente comando
+                        Stdio::piped()
+                    } else {
+                        // Si es el último comando, heredar la salida estándar del proceso padre
+                        Stdio::inherit()
+                    };
+                    let stdin = previous_output.map_or(Stdio::inherit(), |output: Child| {
+                        Stdio::from(output.stdout.unwrap())
+                    });
+
+                    // Ejecutar el comando
+                    info!("commands::run_external_command(): Executing command...");
+                    let child_process = Command::new(executable_path)
+                        .args(&parts[1..])
+                        .stdout(stdout)
+                        .stdin(stdin)
+                        .spawn();
+
+                    // Verificar si se pudo ejecutar el comando
+                    match child_process {
+                        Ok(child) => {
+                            // Obtener la salida estándar del proceso actual para usarla como entrada en el siguiente comando
+                            previous_output = Some(child);
+                            if index == commands.len() - 1 {
+                                return Ok(previous_output);
+                            }
+                        }
+                        Err(_) => {
+                            return Err("Failed to execute command");
+                        }
+                    }
+                } else {
+                    println!("yarp: unknown command: {}", executable);
+                    return Err("Executable not found");
+                }
+            }
+        }
+        Ok(None)
+    }
 }
 
 #[derive(Parser, Debug)]
 #[command(author = "XtremeTHN", version = "1.0.1", about = "List files", long_about = None)]
 struct LsArgs {
-    #[structopt(
-        name = "DIRECTORY",
-        default_value = ".",
-    )]
+    #[structopt(name = "DIRECTORY", default_value = ".")]
     dir: String,
 }
 
@@ -165,11 +261,7 @@ struct ConfigArgs {
     )]
     get_opt: bool,
 
-    #[arg(
-        short = 'l',
-        long = "list",
-        help = "List all values of the configs"
-    )]
+    #[arg(short = 'l', long = "list", help = "List all values of the configs")]
     list_opt: bool,
 
     section: Option<String>,
@@ -199,29 +291,39 @@ impl Builtin {
             Ok(args) => {
                 if args.list_opt {
                     println!("{}: Listing values...", "config".blue());
-                    println!("{} ({}):", "Logs Configurations".bold(), "logs_configurations".green());
-                    println!("  write_to_file: {}", configs.logs_configurations.write_to_file);
-                    println!("  write_to_stdout: {}", configs.logs_configurations.write_to_stdout);
+                    println!(
+                        "{} ({}):",
+                        "Logs Configurations".bold(),
+                        "logs_configurations".green()
+                    );
+                    println!(
+                        "  write_to_file: {}",
+                        configs.logs_configurations.write_to_file
+                    );
+                    println!(
+                        "  write_to_stdout: {}",
+                        configs.logs_configurations.write_to_stdout
+                    );
                 }
                 if args.set_opt {
                     let mut configs_set_opt_clone = configs.clone();
                     match args.section.clone().unwrap().as_str() {
-                        "logs_configurations" => {
-                            match args.field.clone().unwrap().as_str() {
-                                "write_to_file" => {
-                                    configs_set_opt_clone.logs_configurations.write_to_file = args.value.clone().unwrap().parse().unwrap();
-                                    write_conf(configs_set_opt_clone);
-                                }
-                                "write_to_stdout" => {
-                                    configs_set_opt_clone.logs_configurations.write_to_stdout = args.value.clone().unwrap().parse().unwrap();
-                                    write_conf(configs_set_opt_clone);
-                                }
-                                &_ => {
-                                    println!("{}: No such field", "config".blue());
-                                    ()
-                                }
+                        "logs_configurations" => match args.field.clone().unwrap().as_str() {
+                            "write_to_file" => {
+                                configs_set_opt_clone.logs_configurations.write_to_file =
+                                    args.value.clone().unwrap().parse().unwrap();
+                                write_conf(configs_set_opt_clone);
                             }
-                        }
+                            "write_to_stdout" => {
+                                configs_set_opt_clone.logs_configurations.write_to_stdout =
+                                    args.value.clone().unwrap().parse().unwrap();
+                                write_conf(configs_set_opt_clone);
+                            }
+                            &_ => {
+                                println!("{}: No such field", "config".blue());
+                                ()
+                            }
+                        },
                         &_ => {
                             println!("{}: No such section", "config".blue());
                         }
@@ -230,20 +332,26 @@ impl Builtin {
                 if args.get_opt {
                     let configs_get_opt_clone = configs;
                     match args.section.clone().unwrap().as_str() {
-                        "logs_configurations" => {
-                            match args.field.unwrap().as_str() {
-                                "write_to_file" => {
-                                    println!("{}: {}", "Value".cyan(), configs_get_opt_clone.logs_configurations.write_to_file); 
-                                }
-                                "write_to_stdout" => {
-                                    println!("{}: {}", "Value".cyan(), configs_get_opt_clone.logs_configurations.write_to_stdout); 
-                                }
-                                &_ => {
-                                    println!("{}: No such field", "config".blue());
-                                    ()
-                                }
+                        "logs_configurations" => match args.field.unwrap().as_str() {
+                            "write_to_file" => {
+                                println!(
+                                    "{}: {}",
+                                    "Value".cyan(),
+                                    configs_get_opt_clone.logs_configurations.write_to_file
+                                );
                             }
-                        }
+                            "write_to_stdout" => {
+                                println!(
+                                    "{}: {}",
+                                    "Value".cyan(),
+                                    configs_get_opt_clone.logs_configurations.write_to_stdout
+                                );
+                            }
+                            &_ => {
+                                println!("{}: No such field", "config".blue());
+                                ()
+                            }
+                        },
                         &_ => {
                             println!("{}: No such section", "config".blue());
                         }
@@ -258,7 +366,11 @@ impl Builtin {
     pub fn clear_screen() -> io::Result<()> {
         info!("commands::clear_screan(): Trying to clear terminal");
         let mut stdout = io::stdout();
-        execute!(stdout, terminal::Clear(terminal::ClearType::All), MoveTo(0, 0))?;
+        execute!(
+            stdout,
+            terminal::Clear(terminal::ClearType::All),
+            MoveTo(0, 0)
+        )?;
         stdout.flush()?;
         Ok(())
     }
@@ -283,7 +395,11 @@ impl Builtin {
                                     Err(err) => {
                                         error!("commands::Builtin::read_file(): Error while trying to save file content to the buffer");
                                         error!("commands::Builtin::read_file(): {}", err);
-                                        println!("{}: Error while trying to read {}", "read".green(), opts.file.as_path().to_str().unwrap());
+                                        println!(
+                                            "{}: Error while trying to read {}",
+                                            "read".green(),
+                                            opts.file.as_path().to_str().unwrap()
+                                        );
                                         println!("{}: More information in the logs (You can use the 'logs last_log' command)", "read".green());
                                     }
                                 }
@@ -306,27 +422,36 @@ impl Builtin {
                                 let mut metadata_formated: Vec<String> = vec![];
 
                                 let lm = md_obj.accessed().unwrap_or(SystemTime::now());
-                                
+
                                 let mut read_write_perms = String::new();
                                 if md_obj.permissions().readonly() {
-                                    read_write_perms.push_str(format!("{}: Read only", "Permissions".blue().bold()).as_str());
+                                    read_write_perms.push_str(
+                                        format!("{}: Read only", "Permissions".blue().bold())
+                                            .as_str(),
+                                    );
                                 } else {
-                                    read_write_perms.push_str(format!("{}: Read and write", "Permissions".blue().bold()).as_str());
+                                    read_write_perms.push_str(
+                                        format!("{}: Read and write", "Permissions".blue().bold())
+                                            .as_str(),
+                                    );
                                 }
-                                
-                                metadata_formated.push(
-                                    format!("{}: {}", "Last Modified".blue().bold(), format_system_time(lm)),
-                                );
-                                metadata_formated.push(
-                                    read_write_perms
-                                );
+
+                                metadata_formated.push(format!(
+                                    "{}: {}",
+                                    "Last Modified".blue().bold(),
+                                    format_system_time(lm)
+                                ));
+                                metadata_formated.push(read_write_perms);
                                 info!("commands::Builtin::read_file(): Showing metadata...");
                                 columnize_text(&metadata_formated);
                             }
                             Err(err) => {
                                 error!("commands::Builtin::read_file(): Error while trying to get file metadata");
                                 error!("commands::Builtin::read_file(): {}", err);
-                                println!("read: Couldnt read {} metadata", opts.file.as_path().to_str().unwrap());
+                                println!(
+                                    "read: Couldnt read {} metadata",
+                                    opts.file.as_path().to_str().unwrap()
+                                );
                                 ()
                             }
                         }
@@ -338,12 +463,30 @@ impl Builtin {
             }
         }
     }
-    
+
+    pub fn getcwd() -> Result<PathBuf, String> {
+        info!("commands::Builtin::getcwd(): Retrieving the working directory...");
+        match env::current_dir() {
+            Ok(wkd) => {
+                println!("{}", wkd.as_os_str().to_string_lossy().to_string());
+                Ok(wkd)
+            }
+            Err(err) => {
+                error!("commands::Builtin::getcwd(): Cannot get the current work directory because this error:");
+                error!("commands::Builtin::getcwd(): {err}");
+                Err(err.to_string())
+            }
+        }
+    }
+
     pub fn list_cmd(arguments: Vec<String>) {
         let args_obj = LsArgs::try_parse_from(arguments);
         match args_obj {
             Ok(opt) => {
-                info!("commands::Builtin::list_cmd(): Listing files in {}", opt.dir);
+                info!(
+                    "commands::Builtin::list_cmd(): Listing files in {}",
+                    opt.dir
+                );
                 let work_dir_convertion = PathBuf::from(&opt.dir);
                 let mut colored_vector: Vec<String> = vec![];
                 info!("commands::Builtin::list_cmd(): Formating text...");
@@ -352,25 +495,47 @@ impl Builtin {
                         for x in iterator {
                             if x.as_ref().unwrap().path().is_dir() {
                                 let file = x.unwrap().path().clone();
-                                colored_vector.push(file.file_name().unwrap().to_str().unwrap().blue().to_string());
-                                
+                                colored_vector.push(
+                                    file.file_name()
+                                        .unwrap()
+                                        .to_str()
+                                        .unwrap()
+                                        .blue()
+                                        .to_string(),
+                                );
                             } else if x.as_ref().unwrap().path().is_symlink() {
                                 let file = x.unwrap().path().clone();
-                                colored_vector.push(file.file_name().unwrap().to_str().unwrap().green().to_string());
+                                colored_vector.push(
+                                    file.file_name()
+                                        .unwrap()
+                                        .to_str()
+                                        .unwrap()
+                                        .green()
+                                        .to_string(),
+                                );
                             } else {
                                 let file = x.unwrap().path().clone();
-                                colored_vector.push(file.file_name().unwrap().to_str().unwrap().yellow().to_string());
+                                colored_vector.push(
+                                    file.file_name()
+                                        .unwrap()
+                                        .to_str()
+                                        .unwrap()
+                                        .yellow()
+                                        .to_string(),
+                                );
                             }
                         }
                         columnize_text(&colored_vector);
                     }
                     Err(err) => {
-                        error!("commands::Builtin::list_cmd(): Cannot read the specified directory");
+                        error!(
+                            "commands::Builtin::list_cmd(): Cannot read the specified directory"
+                        );
                         error!("commands::Builtin::list_cmd(): {err}");
                         println!("ls: Cannot read this directory");
-                    },
+                    }
                 }
-            },
+            }
             Err(err) => {
                 error!("commands::Builtin::list_cmd(): Cannot list files because this error:");
                 error!("commands::Builtin::list_cmd(): {err}");
@@ -378,5 +543,4 @@ impl Builtin {
             }
         };
     }
-        
 }

@@ -1,6 +1,6 @@
 [package]
 name = "yarsh"
-version = "0.9.10"
+version = "0.10.0"
 edition = "2021"
 
 [dependencies]
@@ -13,6 +13,7 @@ formatx = "0.2.1"
 is_executable = "1.0.1"
 libc = "0.2.145"
 log = "0.4.18"
+rlua = "0.19.5"
 rustyline = "11.0.0"
 serde_yaml = "0.9.21"
 shellwords = "1.1.0"
