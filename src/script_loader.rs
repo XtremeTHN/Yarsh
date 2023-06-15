@@ -65,6 +65,7 @@ pub fn read_file(file: PathBuf) -> Result<String, String> {
 
 pub fn load(files: Vec<PathBuf>, external_cmds_obj: ExternalCommands) -> () {
     let lua_obj = Lua::new();
+    
     for file in files {
         lua_obj.context(|ctx| {
             let globals = ctx.globals();
